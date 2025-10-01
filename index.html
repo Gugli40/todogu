@@ -1,0 +1,1487 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Calendario & Todo</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            overscroll-behavior: none;
+            touch-action: pan-x pan-y;
+        }
+
+        /* Animazioni */
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .slide-up {
+            animation: slideUp 0.3s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Calendar styles */
+        .calendar-day {
+            min-height: 60px;
+            position: relative;
+        }
+
+        .calendar-day.today {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+
+        .calendar-day.has-events::after {
+            content: '';
+            position: absolute;
+            bottom: 4px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 4px;
+            height: 4px;
+            background: #ef4444;
+            border-radius: 50%;
+        }
+
+        /* Todo card drag */
+        .todo-card {
+            transition: transform 0.2s ease;
+        }
+
+        .todo-card.dragging {
+            opacity: 0.5;
+            transform: scale(0.95);
+        }
+
+        .kanban-column.drag-over {
+            background: rgba(59, 130, 246, 0.1);
+            border: 2px dashed #3b82f6;
+        }
+
+        /* Bottom nav */
+        .bottom-nav {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1);
+            z-index: 50;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* Modal styles */
+        .modal {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            display: flex;
+            align-items: flex-end;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 24px 24px 0 0;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+            animation: slideUpModal 0.3s ease-out;
+        }
+
+        @keyframes slideUpModal {
+            from {
+                transform: translateY(100%);
+            }
+            to {
+                transform: translateY(0);
+            }
+        }
+
+        /* Drawer menu */
+        .drawer {
+            position: fixed;
+            top: 0;
+            right: -100%;
+            width: 80%;
+            max-width: 320px;
+            height: 100vh;
+            background: white;
+            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
+            z-index: 100;
+            transition: right 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .drawer.open {
+            right: 0;
+        }
+
+        .drawer-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 99;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+        }
+
+        .drawer-overlay.open {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Timer pulse */
+        .timer-pulse {
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        /* Safe area */
+        .safe-top {
+            padding-top: env(safe-area-inset-top);
+        }
+
+        .safe-bottom {
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* Stats bars */
+        .stat-bar {
+            transition: width 0.5s ease;
+        }
+
+        /* Focus mode */
+        .focus-overlay {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+    <!-- Header fisso -->
+    <header class="fixed top-0 left-0 right-0 bg-white shadow-md z-40 safe-top">
+        <div class="flex items-center justify-between p-4">
+            <div class="flex items-center gap-3">
+                <div class="bg-gradient-to-r from-blue-500 to-indigo-600 p-2 rounded-xl">
+                    <svg class="h-5 w-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-lg font-bold text-gray-800">Calendario & Todo</h1>
+                    <p class="text-xs text-gray-500" id="headerSubtitle">Vista Calendario</p>
+                </div>
+            </div>
+            
+            <button id="menuBtn" class="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                <svg class="h-6 w-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Search bar (mostrata solo in alcune viste) -->
+        <div id="searchBar" class="px-4 pb-3">
+            <div class="relative">
+                <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="text" id="searchInput" placeholder="Cerca..." class="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+        </div>
+    </header>
+
+    <!-- Timer attivo mobile -->
+    <div id="activeTimer" class="hidden fixed top-20 left-4 right-4 bg-green-500 text-white rounded-2xl p-4 shadow-lg z-30 slide-up">
+        <div class="flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-2 h-2 bg-white rounded-full timer-pulse"></div>
+                <div>
+                    <div class="text-sm font-medium" id="timerTaskTitle">Task in corso</div>
+                    <div class="text-lg font-mono font-bold" id="timerDuration">00:00:00</div>
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button id="pauseTimerBtn" class="p-2 bg-white bg-opacity-20 rounded-lg">
+                    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/>
+                    </svg>
+                </button>
+                <button id="stopTimerBtn" class="p-2 bg-white bg-opacity-20 rounded-lg">
+                    <svg class="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                        <rect x="6" y="6" width="12" height="12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main content con padding per header e bottom nav -->
+    <main class="pt-24 pb-20 px-4" style="min-height: 100vh;">
+        <!-- Vista Calendario -->
+        <div id="calendarView" class="fade-in">
+            <!-- Controlli mese -->
+            <div class="flex items-center justify-between mb-4">
+                <button id="prevMonth" class="p-2 hover:bg-gray-100 rounded-lg">
+                    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </button>
+                
+                <h2 id="currentMonthYear" class="text-lg font-semibold"></h2>
+                
+                <button id="nextMonth" class="p-2 hover:bg-gray-100 rounded-lg">
+                    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            </div>
+
+            <!-- Griglia calendario -->
+            <div class="bg-white rounded-2xl shadow-lg p-3 mb-4">
+                <div class="grid grid-cols-7 gap-1 mb-2">
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">D</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">L</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">M</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">M</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">G</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">V</div>
+                    <div class="text-center text-xs font-medium text-gray-500 py-2">S</div>
+                </div>
+                <div id="calendarGrid" class="grid grid-cols-7 gap-1">
+                    <!-- Giorni generati dinamicamente -->
+                </div>
+            </div>
+
+            <!-- Eventi del giorno selezionato -->
+            <div id="selectedDayEvents" class="hidden">
+                <h3 class="text-sm font-semibold text-gray-600 mb-3" id="selectedDayTitle"></h3>
+                <div id="selectedDayEventsList" class="space-y-3">
+                    <!-- Eventi inseriti qui -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Vista Lista -->
+        <div id="listView" class="hidden fade-in">
+            <div id="eventsList" class="space-y-3">
+                <!-- Eventi inseriti qui -->
+            </div>
+        </div>
+
+        <!-- Vista Todo (Kanban) -->
+        <div id="todoView" class="hidden fade-in">
+            <!-- Stats rapide -->
+            <div class="grid grid-cols-4 gap-2 mb-4">
+                <div class="bg-blue-50 rounded-xl p-3 text-center">
+                    <div class="text-xl font-bold text-blue-600" id="todoCount">0</div>
+                    <div class="text-xs text-gray-600">Da fare</div>
+                </div>
+                <div class="bg-yellow-50 rounded-xl p-3 text-center">
+                    <div class="text-xl font-bold text-yellow-600" id="doingCount">0</div>
+                    <div class="text-xs text-gray-600">In corso</div>
+                </div>
+                <div class="bg-green-50 rounded-xl p-3 text-center">
+                    <div class="text-xl font-bold text-green-600" id="doneCount">0</div>
+                    <div class="text-xs text-gray-600">Fatto</div>
+                </div>
+                <div class="bg-gray-50 rounded-xl p-3 text-center">
+                    <div class="text-xl font-bold text-gray-600" id="pausedCount">0</div>
+                    <div class="text-xs text-gray-600">Pausa</div>
+                </div>
+            </div>
+
+            <!-- Tab switcher per mobile -->
+            <div class="flex gap-2 mb-4 overflow-x-auto pb-2">
+                <button class="tab-btn active px-4 py-2 rounded-lg font-medium whitespace-nowrap bg-blue-500 text-white" data-status="todo">
+                    Da fare
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-lg font-medium whitespace-nowrap bg-gray-100 text-gray-600" data-status="doing">
+                    In corso
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-lg font-medium whitespace-nowrap bg-gray-100 text-gray-600" data-status="done">
+                    Completati
+                </button>
+                <button class="tab-btn px-4 py-2 rounded-lg font-medium whitespace-nowrap bg-gray-100 text-gray-600" data-status="paused">
+                    In pausa
+                </button>
+            </div>
+
+            <!-- Todo columns (una alla volta su mobile) -->
+            <div id="todoColumn" class="kanban-column space-y-3" data-status="todo">
+                <!-- Todo cards -->
+            </div>
+            <div id="doingColumn" class="kanban-column space-y-3 hidden" data-status="doing">
+                <!-- Doing cards -->
+            </div>
+            <div id="doneColumn" class="kanban-column space-y-3 hidden" data-status="done">
+                <!-- Done cards -->
+            </div>
+            <div id="pausedColumn" class="kanban-column space-y-3 hidden" data-status="paused">
+                <!-- Paused cards -->
+            </div>
+        </div>
+
+        <!-- Vista Statistiche -->
+        <div id="statsView" class="hidden fade-in space-y-4">
+            <!-- Produttività -->
+            <div class="bg-white rounded-2xl shadow-lg p-4">
+                <h3 class="font-semibold text-gray-800 mb-4">📊 Produttività</h3>
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Oggi</span>
+                            <span id="todayCompleted" class="font-medium">0/0</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="todayBar" class="bg-green-500 h-2 rounded-full stat-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-600">Questa settimana</span>
+                            <span id="weekCompleted" class="font-medium">0/0</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="weekBar" class="bg-blue-500 h-2 rounded-full stat-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Categorie -->
+            <div class="bg-white rounded-2xl shadow-lg p-4">
+                <h3 class="font-semibold text-gray-800 mb-4">📁 Per Categoria</h3>
+                <div id="categoryChart" class="space-y-2">
+                    <!-- Chart qui -->
+                </div>
+            </div>
+
+            <!-- Tempo -->
+            <div class="bg-white rounded-2xl shadow-lg p-4">
+                <h3 class="font-semibold text-gray-800 mb-4">⏱️ Tempo</h3>
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-blue-600" id="totalTime">0h</div>
+                        <div class="text-sm text-gray-600">Stimato</div>
+                    </div>
+                    <div class="text-center">
+                        <div class="text-2xl font-bold text-green-600" id="completedTime">0h</div>
+                        <div class="text-sm text-gray-600">Completato</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+        <div class="flex justify-around items-center py-2 px-4">
+            <button class="nav-btn flex flex-col items-center gap-1 p-2 text-blue-500" data-view="calendar">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <span class="text-xs font-medium">Calendario</span>
+            </button>
+            
+            <button class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400" data-view="list">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
+                </svg>
+                <span class="text-xs font-medium">Lista</span>
+            </button>
+            
+            <button id="fabBtn" class="relative -mt-6 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-full p-4 shadow-lg">
+                <svg class="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+            </button>
+            
+            <button class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400" data-view="todo">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+                </svg>
+                <span class="text-xs font-medium">Todo</span>
+            </button>
+            
+            <button class="nav-btn flex flex-col items-center gap-1 p-2 text-gray-400" data-view="stats">
+                <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                </svg>
+                <span class="text-xs font-medium">Stats</span>
+            </button>
+        </div>
+    </nav>
+
+    <!-- Drawer Menu -->
+    <div class="drawer-overlay" id="drawerOverlay"></div>
+    <div class="drawer" id="drawer">
+        <div class="p-6 border-b border-gray-200">
+            <div class="flex items-center justify-between">
+                <h2 class="text-xl font-bold text-gray-800">Menu</h2>
+                <button id="closeDrawer" class="p-2 hover:bg-gray-100 rounded-lg">
+                    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+        
+        <div class="p-4">
+            <!-- Filtri -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-600 mb-3">Filtri</h3>
+                <div class="space-y-2">
+                    <select id="filterType" class="w-full px-3 py-2 border border-gray-200 rounded-lg">
+                        <option value="all">Tutti i tipi</option>
+                        <option value="appointment">Appuntamenti</option>
+                        <option value="deadline">Scadenze</option>
+                        <option value="todo">Todo</option>
+                    </select>
+                    <select id="filterCategory" class="w-full px-3 py-2 border border-gray-200 rounded-lg">
+                        <option value="all">Tutte le categorie</option>
+                        <option value="work">Lavoro</option>
+                        <option value="personal">Personale</option>
+                        <option value="study">Studio</option>
+                        <option value="health">Salute</option>
+                    </select>
+                    <select id="filterPriority" class="w-full px-3 py-2 border border-gray-200 rounded-lg">
+                        <option value="all">Tutte le priorità</option>
+                        <option value="high">Alta</option>
+                        <option value="medium">Media</option>
+                        <option value="low">Bassa</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Azioni -->
+            <div class="mb-6">
+                <h3 class="text-sm font-semibold text-gray-600 mb-3">Azioni</h3>
+                <div class="space-y-2">
+                    <button id="exportBtn" class="w-full px-4 py-3 bg-blue-50 text-blue-600 rounded-lg text-left flex items-center gap-3">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Esporta dati
+                    </button>
+                    <label class="w-full px-4 py-3 bg-purple-50 text-purple-600 rounded-lg text-left flex items-center gap-3 cursor-pointer">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                        </svg>
+                        Importa dati
+                        <input type="file" id="importFile" accept=".json" class="hidden">
+                    </label>
+                    <button id="clearAllBtn" class="w-full px-4 py-3 bg-red-50 text-red-600 rounded-lg text-left flex items-center gap-3">
+                        <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                        Elimina tutti i dati
+                    </button>
+                </div>
+            </div>
+
+            <!-- Info -->
+            <div class="text-xs text-gray-500" id="storageInfo">
+                <!-- Info storage -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Nuovo/Modifica -->
+    <div id="eventModal" class="modal hidden">
+        <div class="modal-content">
+            <div class="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+                <h3 id="modalTitle" class="text-lg font-semibold">Nuovo Elemento</h3>
+                <button id="closeModal" class="p-2 hover:bg-gray-100 rounded-lg">
+                    <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Tipo</label>
+                    <select id="eventType" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                        <option value="appointment">Appuntamento</option>
+                        <option value="deadline">Scadenza</option>
+                        <option value="todo">Todo</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Titolo *</label>
+                    <input type="text" id="eventTitle" class="w-full px-3 py-3 border border-gray-300 rounded-xl" placeholder="Es: Riunione importante">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Descrizione</label>
+                    <textarea id="eventDescription" rows="3" class="w-full px-3 py-3 border border-gray-300 rounded-xl" placeholder="Aggiungi dettagli..."></textarea>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Categoria</label>
+                        <select id="eventCategory" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                            <option value="work">Lavoro</option>
+                            <option value="personal">Personale</option>
+                            <option value="study">Studio</option>
+                            <option value="health">Salute</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Priorità</label>
+                        <select id="eventPriority" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                            <option value="low">Bassa</option>
+                            <option value="medium">Media</option>
+                            <option value="high">Alta</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Campi data/ora per eventi -->
+                <div id="dateTimeFields" class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Data *</label>
+                        <input type="date" id="eventDate" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Ora *</label>
+                        <input type="time" id="eventTime" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                    </div>
+                </div>
+
+                <!-- Campi todo -->
+                <div id="todoFields" class="hidden space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                        <select id="todoStatus" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                            <option value="todo">Da fare</option>
+                            <option value="doing">In corso</option>
+                            <option value="done">Completato</option>
+                            <option value="paused">In pausa</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Tempo stimato (ore)</label>
+                        <input type="number" id="estimatedTime" class="w-full px-3 py-3 border border-gray-300 rounded-xl" placeholder="2" step="0.5">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Tags (separati da virgola)</label>
+                        <input type="text" id="todoTags" class="w-full px-3 py-3 border border-gray-300 rounded-xl" placeholder="urgent, meeting">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Scadenza (opzionale)</label>
+                        <input type="date" id="todoDueDate" class="w-full px-3 py-3 border border-gray-300 rounded-xl">
+                    </div>
+                </div>
+            </div>
+
+            <div class="sticky bottom-0 bg-white border-t border-gray-200 p-4 flex gap-3">
+                <button id="cancelBtn" class="flex-1 px-4 py-3 border border-gray-300 text-gray-700 rounded-xl font-medium">
+                    Annulla
+                </button>
+                <button id="saveBtn" class="flex-1 px-4 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-medium">
+                    Salva
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Focus Mode -->
+    <div id="focusMode" class="hidden fixed inset-0 z-50 focus-overlay flex items-center justify-center p-6">
+        <div class="bg-white rounded-3xl p-8 max-w-md w-full text-center">
+            <h2 class="text-2xl font-bold mb-2">Modalità Focus</h2>
+            <p class="text-gray-600 mb-6">Concentrati su questo task</p>
+            
+            <div class="mb-8">
+                <div class="text-lg font-semibold mb-2" id="focusTaskTitle">Task</div>
+                <div class="text-5xl font-mono font-bold text-blue-600 mb-4" id="focusTimer">00:00:00</div>
+            </div>
+            
+            <div class="flex gap-3 mb-4">
+                <button id="focusStart" class="flex-1 px-6 py-3 bg-green-500 text-white rounded-xl font-medium">
+                    Start
+                </button>
+                <button id="focusPause" class="flex-1 px-6 py-3 bg-yellow-500 text-white rounded-xl font-medium hidden">
+                    Pausa
+                </button>
+                <button id="focusStop" class="flex-1 px-6 py-3 bg-red-500 text-white rounded-xl font-medium hidden">
+                    Stop
+                </button>
+            </div>
+            
+            <button id="exitFocus" class="px-6 py-2 bg-gray-100 text-gray-600 rounded-lg">
+                Esci
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Variabili globali
+        let currentDate = new Date();
+        let selectedDate = new Date();
+        let events = [];
+        let editingEvent = null;
+        let currentView = 'calendar';
+        let searchTerm = '';
+        let filterType = 'all';
+        let filterCategory = 'all';
+        let filterPriority = 'all';
+        let activeTimer = null;
+        let focusTimer = null;
+        let focusStartTime = null;
+        let focusElapsed = 0;
+        let currentTodoTab = 'todo';
+
+        const monthNames = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre'];
+        const categoryNames = { work: 'Lavoro', personal: 'Personale', study: 'Studio', health: 'Salute' };
+        const statusNames = { todo: 'Da fare', doing: 'In corso', done: 'Completato', paused: 'In pausa' };
+
+        // LocalStorage functions
+        function saveData() {
+            try {
+                const data = { events, filters: { searchTerm, filterType, filterCategory, filterPriority }, currentView };
+                localStorage.setItem('calendarApp', JSON.stringify(data));
+                console.log('✅ Dati salvati');
+            } catch (e) {
+                console.error('Errore salvataggio:', e);
+            }
+        }
+
+        function loadData() {
+            try {
+                const data = localStorage.getItem('calendarApp');
+                if (data) {
+                    const parsed = JSON.parse(data);
+                    events = parsed.events.map(e => ({
+                        ...e,
+                        date: e.date ? new Date(e.date) : null,
+                        dueDate: e.dueDate ? new Date(e.dueDate) : null,
+                        createdAt: e.createdAt ? new Date(e.createdAt) : new Date()
+                    }));
+                    if (parsed.filters) {
+                        searchTerm = parsed.filters.searchTerm || '';
+                        filterType = parsed.filters.filterType || 'all';
+                        filterCategory = parsed.filters.filterCategory || 'all';
+                        filterPriority = parsed.filters.filterPriority || 'all';
+                    }
+                    if (parsed.currentView) currentView = parsed.currentView;
+                    console.log(`✅ Caricati ${events.length} eventi`);
+                    return true;
+                }
+            } catch (e) {
+                console.error('Errore caricamento:', e);
+            }
+            return false;
+        }
+
+        function exportData() {
+            const data = { events, exportDate: new Date().toISOString() };
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `calendario_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            showToast('Dati esportati!', 'success');
+        }
+
+        function importData(file) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const data = JSON.parse(e.target.result);
+                    if (confirm('Importare i dati? Sostituirà tutti i dati attuali.')) {
+                        events = data.events.map(e => ({
+                            ...e,
+                            date: e.date ? new Date(e.date) : null,
+                            dueDate: e.dueDate ? new Date(e.dueDate) : null,
+                            createdAt: e.createdAt ? new Date(e.createdAt) : new Date()
+                        }));
+                        saveData();
+                        renderCurrentView();
+                        showToast('Dati importati!', 'success');
+                    }
+                } catch (err) {
+                    showToast('File non valido', 'error');
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        // Initialize sample data
+        function initSampleData() {
+            const loaded = loadData();
+            if (!loaded || events.length === 0) {
+                const today = new Date();
+                events = [
+                    {
+                        id: Date.now(),
+                        title: 'Riunione team',
+                        description: 'Meeting con il team di sviluppo',
+                        date: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0),
+                        type: 'appointment',
+                        priority: 'high',
+                        category: 'work',
+                        completed: false,
+                        createdAt: today
+                    },
+                    {
+                        id: Date.now() + 1,
+                        title: 'Studiare JavaScript',
+                        description: 'Completare il tutorial su async/await',
+                        type: 'todo',
+                        priority: 'medium',
+                        category: 'study',
+                        status: 'doing',
+                        estimatedTime: 2,
+                        tags: ['coding', 'javascript'],
+                        completed: false,
+                        createdAt: today
+                    },
+                    {
+                        id: Date.now() + 2,
+                        title: 'Palestra',
+                        description: 'Allenamento pomeridiano',
+                        type: 'todo',
+                        priority: 'low',
+                        category: 'health',
+                        status: 'todo',
+                        estimatedTime: 1,
+                        dueDate: new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2),
+                        completed: false,
+                        createdAt: today
+                    }
+                ];
+                saveData();
+            }
+        }
+
+        // Calendar functions
+        function generateCalendarDays() {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const firstDay = new Date(year, month, 1);
+            const lastDay = new Date(year, month + 1, 0);
+            const firstDayOfWeek = firstDay.getDay();
+            const daysInMonth = lastDay.getDate();
+            const days = [];
+
+            for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+                const date = new Date(year, month, -i);
+                days.push({ date, isCurrentMonth: false });
+            }
+
+            for (let day = 1; day <= daysInMonth; day++) {
+                const date = new Date(year, month, day);
+                days.push({ date, isCurrentMonth: true });
+            }
+
+            const remainingDays = 42 - days.length;
+            for (let day = 1; day <= remainingDays; day++) {
+                const date = new Date(year, month + 1, day);
+                days.push({ date, isCurrentMonth: false });
+            }
+
+            return days;
+        }
+
+        function getEventsForDate(date) {
+            return events.filter(e => {
+                if (e.type === 'todo' && e.dueDate) {
+                    return new Date(e.dueDate).toDateString() === date.toDateString();
+                } else if (e.date) {
+                    return new Date(e.date).toDateString() === date.toDateString();
+                }
+                return false;
+            });
+        }
+
+        function getFilteredEvents() {
+            return events.filter(e => {
+                const matchSearch = e.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                  e.description.toLowerCase().includes(searchTerm.toLowerCase());
+                const matchType = filterType === 'all' || e.type === filterType;
+                const matchCategory = filterCategory === 'all' || e.category === filterCategory;
+                const matchPriority = filterPriority === 'all' || e.priority === filterPriority;
+                return matchSearch && matchType && matchCategory && matchPriority;
+            });
+        }
+
+        // Render functions
+        function renderCalendar() {
+            document.getElementById('currentMonthYear').textContent = 
+                `${monthNames[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+
+            const grid = document.getElementById('calendarGrid');
+            const days = generateCalendarDays();
+            const today = new Date();
+
+            grid.innerHTML = days.map(day => {
+                const hasEvents = getEventsForDate(day.date).length > 0;
+                const isToday = day.date.toDateString() === today.toDateString();
+                const isSelected = day.date.toDateString() === selectedDate.toDateString();
+
+                return `
+                    <div class="calendar-day ${isToday ? 'today text-white' : ''} 
+                                ${!day.isCurrentMonth ? 'text-gray-300' : 'text-gray-800'}
+                                ${isSelected ? 'ring-2 ring-blue-500' : ''}
+                                ${hasEvents ? 'has-events' : ''}
+                                rounded-lg text-center p-2 cursor-pointer"
+                         onclick="selectDate('${day.date.toISOString()}')">
+                        <div class="text-sm font-medium">${day.date.getDate()}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function selectDate(dateString) {
+            selectedDate = new Date(dateString);
+            renderCalendar();
+            
+            const dayEvents = getEventsForDate(selectedDate);
+            const container = document.getElementById('selectedDayEvents');
+            const title = document.getElementById('selectedDayTitle');
+            const list = document.getElementById('selectedDayEventsList');
+
+            if (dayEvents.length === 0) {
+                container.classList.add('hidden');
+                return;
+            }
+
+            container.classList.remove('hidden');
+            title.textContent = selectedDate.toLocaleDateString('it-IT', { 
+                weekday: 'long', day: 'numeric', month: 'long' 
+            });
+
+            list.innerHTML = dayEvents.map(e => generateEventCard(e, true)).join('');
+        }
+
+        function renderEventsList() {
+            const filtered = getFilteredEvents();
+            const list = document.getElementById('eventsList');
+
+            if (filtered.length === 0) {
+                list.innerHTML = '<p class="text-gray-500 text-center py-8">Nessun evento</p>';
+                return;
+            }
+
+            list.innerHTML = filtered.map(e => generateEventCard(e, true)).join('');
+        }
+
+        function renderTodoView() {
+            const todos = getFilteredEvents().filter(e => e.type === 'todo');
+            const byStatus = {
+                todo: todos.filter(t => t.status === 'todo'),
+                doing: todos.filter(t => t.status === 'doing'),
+                done: todos.filter(t => t.status === 'done'),
+                paused: todos.filter(t => t.status === 'paused')
+            };
+
+            document.getElementById('todoCount').textContent = byStatus.todo.length;
+            document.getElementById('doingCount').textContent = byStatus.doing.length;
+            document.getElementById('doneCount').textContent = byStatus.done.length;
+            document.getElementById('pausedCount').textContent = byStatus.paused.length;
+
+            ['todo', 'doing', 'done', 'paused'].forEach(status => {
+                const column = document.getElementById(`${status}Column`);
+                const items = byStatus[status];
+                
+                if (status === currentTodoTab) {
+                    column.classList.remove('hidden');
+                    column.innerHTML = items.length > 0 
+                        ? items.map(t => generateTodoCard(t)).join('')
+                        : '<p class="text-gray-500 text-center py-8">Nessun task</p>';
+                } else {
+                    column.classList.add('hidden');
+                }
+            });
+        }
+
+        function renderStats() {
+            const todos = events.filter(e => e.type === 'todo');
+            const today = new Date();
+            const startOfWeek = new Date(today);
+            startOfWeek.setDate(today.getDate() - today.getDay());
+
+            // Today stats
+            const todayCompleted = todos.filter(t => t.completed && t.completedAt && 
+                new Date(t.completedAt).toDateString() === today.toDateString()).length;
+            const todayTotal = Math.max(todayCompleted, 1);
+            document.getElementById('todayCompleted').textContent = `${todayCompleted}/${todayTotal}`;
+            document.getElementById('todayBar').style.width = `${(todayCompleted / todayTotal) * 100}%`;
+
+            // Week stats
+            const weekCompleted = todos.filter(t => t.completed && t.completedAt && 
+                new Date(t.completedAt) >= startOfWeek).length;
+            const weekTotal = Math.max(weekCompleted, 1);
+            document.getElementById('weekCompleted').textContent = `${weekCompleted}/${weekTotal}`;
+            document.getElementById('weekBar').style.width = `${(weekCompleted / weekTotal) * 100}%`;
+
+            // Categories
+            const categories = {};
+            Object.keys(categoryNames).forEach(cat => {
+                categories[cat] = todos.filter(t => t.category === cat).length;
+            });
+            const maxCat = Math.max(...Object.values(categories), 1);
+            document.getElementById('categoryChart').innerHTML = Object.entries(categories)
+                .map(([cat, count]) => `
+                    <div class="flex items-center justify-between">
+                        <span class="text-sm text-gray-600">${categoryNames[cat]}</span>
+                        <div class="flex items-center gap-2 flex-1 ml-2">
+                            <div class="flex-1 bg-gray-200 rounded-full h-2">
+                                <div class="bg-blue-500 h-2 rounded-full stat-bar" style="width: ${(count / maxCat) * 100}%"></div>
+                            </div>
+                            <span class="text-sm font-medium w-6">${count}</span>
+                        </div>
+                    </div>
+                `).join('');
+
+            // Time
+            const totalTime = todos.reduce((sum, t) => sum + (t.estimatedTime || 0), 0);
+            const completedTime = todos.filter(t => t.completed).reduce((sum, t) => sum + (t.estimatedTime || 0), 0);
+            document.getElementById('totalTime').textContent = `${totalTime}h`;
+            document.getElementById('completedTime').textContent = `${completedTime}h`;
+        }
+
+        function generateEventCard(event, detailed = false) {
+            const priorityColors = {
+                high: 'border-red-400 bg-red-50',
+                medium: 'border-yellow-400 bg-yellow-50',
+                low: 'border-blue-400 bg-blue-50'
+            };
+
+            const typeIcons = {
+                appointment: '<svg class="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>',
+                deadline: '<svg class="h-5 w-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-1.964-1.333-2.732 0L3.732 16c-.77 1.333.192 3 1.732 3z"/></svg>',
+                todo: '<svg class="h-5 w-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>'
+            };
+
+            return `
+                <div class="bg-white rounded-2xl shadow-md border-l-4 ${priorityColors[event.priority]} p-4 ${event.completed ? 'opacity-60' : ''}">
+                    <div class="flex items-start justify-between mb-2">
+                        <div class="flex items-center gap-2">
+                            ${typeIcons[event.type]}
+                            <h3 class="font-semibold text-gray-800 ${event.completed ? 'line-through' : ''}">${event.title}</h3>
+                        </div>
+                        <div class="flex gap-2">
+                            ${event.type === 'todo' ? `
+                                <button onclick="startTimer(${event.id})" class="p-2 hover:bg-gray-100 rounded-lg">
+                                    <svg class="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                    </svg>
+                                </button>
+                            ` : ''}
+                            <button onclick="toggleComplete(${event.id})" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="h-5 w-5 ${event.completed ? 'text-green-600' : 'text-gray-400'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </button>
+                            <button onclick="editEvent(${event.id})" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="h-5 w-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                                </svg>
+                            </button>
+                            <button onclick="deleteEvent(${event.id})" class="p-2 hover:bg-gray-100 rounded-lg">
+                                <svg class="h-5 w-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <p class="text-sm text-gray-600 mb-2">${event.description}</p>
+                    
+                    <div class="flex flex-wrap gap-2 text-xs">
+                        <span class="px-2 py-1 bg-white rounded-full">${categoryNames[event.category]}</span>
+                        ${event.date ? `<span class="px-2 py-1 bg-white rounded-full">${new Date(event.date).toLocaleDateString('it-IT')}</span>` : ''}
+                        ${event.type === 'todo' && event.estimatedTime ? `<span class="px-2 py-1 bg-blue-100 text-blue-700 rounded-full">${event.estimatedTime}h</span>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function generateTodoCard(todo) {
+            const priorityColors = {
+                high: 'border-red-300 bg-red-50',
+                medium: 'border-yellow-300 bg-yellow-50',
+                low: 'border-gray-300 bg-gray-50'
+            };
+
+            return `
+                <div class="todo-card bg-white rounded-2xl shadow-md border-l-4 ${priorityColors[todo.priority]} p-4 ${todo.completed ? 'opacity-60' : ''}"
+                     draggable="true" data-id="${todo.id}">
+                    <div class="flex items-start justify-between mb-2">
+                        <h3 class="font-semibold text-gray-800 flex-1 ${todo.completed ? 'line-through' : ''}">${todo.title}</h3>
+                        <div class="flex gap-2">
+                            <button onclick="startTimer(${todo.id})" class="p-1 hover:bg-white rounded-lg">
+                                <svg class="h-5 w-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </button>
+                            <button onclick="toggleComplete(${todo.id})" class="p-1 hover:bg-white rounded-lg">
+                                <svg class="h-5 w-5 ${todo.completed ? 'text-green-600' : 'text-gray-400'}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <p class="text-sm text-gray-600 mb-3">${todo.description}</p>
+                    
+                    <div class="flex items-center justify-between text-xs">
+                        <span class="px-2 py-1 bg-white rounded-full">${categoryNames[todo.category]}</span>
+                        ${todo.estimatedTime ? `<span class="text-gray-500">${todo.estimatedTime}h</span>` : ''}
+                    </div>
+                    
+                    ${todo.tags && todo.tags.length > 0 ? `
+                        <div class="flex flex-wrap gap-1 mt-2">
+                            ${todo.tags.map(tag => `<span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded-full">${tag}</span>`).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        // Actions
+        function switchView(view) {
+            currentView = view;
+            saveData();
+
+            // Hide all views
+            ['calendarView', 'listView', 'todoView', 'statsView'].forEach(v => {
+                document.getElementById(v).classList.add('hidden');
+            });
+
+            // Show selected view
+            document.getElementById(`${view}View`).classList.remove('hidden');
+
+            // Update nav buttons
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.classList.remove('text-blue-500');
+                btn.classList.add('text-gray-400');
+            });
+            document.querySelector(`[data-view="${view}"]`).classList.remove('text-gray-400');
+            document.querySelector(`[data-view="${view}"]`).classList.add('text-blue-500');
+
+            // Update subtitle
+            const subtitles = {
+                calendar: 'Vista Calendario',
+                list: 'Lista Eventi',
+                todo: 'Gestione Todo',
+                stats: 'Statistiche'
+            };
+            document.getElementById('headerSubtitle').textContent = subtitles[view];
+
+            // Show/hide search bar
+            document.getElementById('searchBar').style.display = 
+                view === 'list' || view === 'todo' ? 'block' : 'none';
+
+            renderCurrentView();
+        }
+
+        function renderCurrentView() {
+            switch(currentView) {
+                case 'calendar':
+                    renderCalendar();
+                    selectDate(selectedDate.toISOString());
+                    break;
+                case 'list':
+                    renderEventsList();
+                    break;
+                case 'todo':
+                    renderTodoView();
+                    break;
+                case 'stats':
+                    renderStats();
+                    break;
+            }
+        }
+
+        function toggleComplete(id) {
+            const event = events.find(e => e.id === id);
+            if (event) {
+                event.completed = !event.completed;
+                if (event.type === 'todo') {
+                    event.status = event.completed ? 'done' : 'todo';
+                    event.completedAt = event.completed ? new Date() : null;
+                }
+                saveData();
+                renderCurrentView();
+            }
+        }
+
+        function editEvent(id) {
+            const event = events.find(e => e.id === id);
+            if (!event) return;
+
+            editingEvent = event;
+            document.getElementById('modalTitle').textContent = 'Modifica';
+            document.getElementById('eventType').value = event.type;
+            document.getElementById('eventTitle').value = event.title;
+            document.getElementById('eventDescription').value = event.description;
+            document.getElementById('eventCategory').value = event.category;
+            document.getElementById('eventPriority').value = event.priority;
+
+            if (event.type === 'todo') {
+                document.getElementById('todoStatus').value = event.status;
+                document.getElementById('estimatedTime').value = event.estimatedTime || '';
+                document.getElementById('todoTags').value = event.tags ? event.tags.join(', ') : '';
+                document.getElementById('todoDueDate').value = event.dueDate ? event.dueDate.toISOString().split('T')[0] : '';
+            } else {
+                document.getElementById('eventDate').value = event.date ? event.date.toISOString().split('T')[0] : '';
+                document.getElementById('eventTime').value = event.date ? event.date.toTimeString().slice(0, 5) : '';
+            }
+
+            toggleModalFields();
+            document.getElementById('eventModal').classList.remove('hidden');
+        }
+
+        function deleteEvent(id) {
+            if (confirm('Eliminare questo elemento?')) {
+                events = events.filter(e => e.id !== id);
+                saveData();
+                renderCurrentView();
+                showToast('Elemento eliminato', 'success');
+            }
+        }
+
+        function saveEvent() {
+            const title = document.getElementById('eventTitle').value.trim();
+            if (!title) {
+                showToast('Il titolo è obbligatorio', 'error');
+                return;
+            }
+
+            const type = document.getElementById('eventType').value;
+            const eventData = {
+                title,
+                description: document.getElementById('eventDescription').value.trim(),
+                type,
+                category: document.getElementById('eventCategory').value,
+                priority: document.getElementById('eventPriority').value,
+                completed: false
+            };
+
+            if (type === 'todo') {
+                eventData.status = document.getElementById('todoStatus').value;
+                eventData.estimatedTime = parseFloat(document.getElementById('estimatedTime').value) || null;
+                eventData.tags = document.getElementById('todoTags').value.split(',').map(t => t.trim()).filter(t => t);
+                const dueDate = document.getElementById('todoDueDate').value;
+                eventData.dueDate = dueDate ? new Date(dueDate) : null;
+                eventData.createdAt = new Date();
+            } else {
+                const date = document.getElementById('eventDate').value;
+                const time = document.getElementById('eventTime').value;
+                if (!date || !time) {
+                    showToast('Data e ora obbligatorie', 'error');
+                    return;
+                }
+                eventData.date = new Date(`${date}T${time}`);
+                eventData.createdAt = new Date();
+            }
+
+            if (editingEvent) {
+                const index = events.findIndex(e => e.id === editingEvent.id);
+                events[index] = { ...editingEvent, ...eventData };
+            } else {
+                eventData.id = Date.now();
+                events.push(eventData);
+            }
+
+            closeModal();
+            saveData();
+            renderCurrentView();
+            showToast(editingEvent ? 'Modificato!' : 'Creato!', 'success');
+        }
+
+        function toggleModalFields() {
+            const type = document.getElementById('eventType').value;
+            document.getElementById('dateTimeFields').style.display = type === 'todo' ? 'none' : 'grid';
+            document.getElementById('todoFields').style.display = type === 'todo' ? 'block' : 'none';
+        }
+
+        function closeModal() {
+            document.getElementById('eventModal').classList.add('hidden');
+            editingEvent = null;
+            document.getElementById('eventTitle').value = '';
+            document.getElementById('eventDescription').value = '';
+            document.getElementById('eventType').value = 'appointment';
+            toggleModalFields();
+        }
+
+        // Timer functions
+        function startTimer(id) {
+            const todo = events.find(e => e.id === id);
+            if (!todo) return;
+
+            if (activeTimer) stopTimer();
+
+            activeTimer = {
+                id,
+                startTime: Date.now(),
+                elapsed: 0
+            };
+
+            document.getElementById('activeTimer').classList.remove('hidden');
+            document.getElementById('timerTaskTitle').textContent = todo.title;
+            updateTimer();
+            activeTimer.interval = setInterval(updateTimer, 1000);
+
+            if (todo.status !== 'doing') {
+                todo.status = 'doing';
+                saveData();
+                renderCurrentView();
+            }
+        }
+
+        function updateTimer() {
+            if (!activeTimer) return;
+            const elapsed = (Date.now() - activeTimer.startTime) / 1000 + activeTimer.elapsed;
+            const h = Math.floor(elapsed / 3600);
+            const m = Math.floor((elapsed % 3600) / 60);
+            const s = Math.floor(elapsed % 60);
+            document.getElementById('timerDuration').textContent = 
+                `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function pauseTimer() {
+            if (!activeTimer) return;
+            clearInterval(activeTimer.interval);
+            activeTimer.elapsed += (Date.now() - activeTimer.startTime) / 1000;
+            activeTimer.startTime = Date.now();
+        }
+
+        function stopTimer() {
+            if (!activeTimer) return;
+            clearInterval(activeTimer.interval);
+            const todo = events.find(e => e.id === activeTimer.id);
+            if (todo) {
+                const elapsed = ((Date.now() - activeTimer.startTime) / 1000 + activeTimer.elapsed) / 3600;
+                todo.timeSpent = (todo.timeSpent || 0) + elapsed;
+                saveData();
+            }
+            activeTimer = null;
+            document.getElementById('activeTimer').classList.add('hidden');
+            renderCurrentView();
+        }
+
+        // Toast notification
+        function showToast(message, type = 'info') {
+            const colors = {
+                success: 'bg-green-500',
+                error: 'bg-red-500',
+                info: 'bg-blue-500'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `fixed top-20 left-1/2 transform -translate-x-1/2 ${colors[type]} text-white px-6 py-3 rounded-2xl shadow-lg z-50 slide-up`;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            initSampleData();
+            switchView(currentView);
+
+            // Navigation
+            document.querySelectorAll('.nav-btn').forEach(btn => {
+                btn.addEventListener('click', () => switchView(btn.dataset.view));
+            });
+
+            // Calendar navigation
+            document.getElementById('prevMonth').addEventListener('click', () => {
+                currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() - 1);
+                renderCalendar();
+            });
+
+            document.getElementById('nextMonth').addEventListener('click', () => {
+                currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1);
+                renderCalendar();
+            });
+
+            // Search
+            document.getElementById('searchInput').addEventListener('input', (e) => {
+                searchTerm = e.target.value;
+                saveData();
+                renderCurrentView();
+            });
+
+            // Drawer
+            document.getElementById('menuBtn').addEventListener('click', () => {
+                document.getElementById('drawer').classList.add('open');
+                document.getElementById('drawerOverlay').classList.add('open');
+            });
+
+            const closeDrawer = () => {
+                document.getElementById('drawer').classList.remove('open');
+                document.getElementById('drawerOverlay').classList.remove('open');
+            };
+
+            document.getElementById('closeDrawer').addEventListener('click', closeDrawer);
+            document.getElementById('drawerOverlay').addEventListener('click', closeDrawer);
+
+            // Filters
+            document.getElementById('filterType').addEventListener('change', (e) => {
+                filterType = e.target.value;
+                saveData();
+                renderCurrentView();
+            });
+
+            document.getElementById('filterCategory').addEventListener('change', (e) => {
+                filterCategory = e.target.value;
+                saveData();
+                renderCurrentView();
+            });
+
+            document.getElementById('filterPriority').addEventListener('change', (e) => {
+                filterPriority = e.target.value;
+                saveData();
+                renderCurrentView();
+            });
+
+            // Data management
+            document.getElementById('exportBtn').addEventListener('click', exportData);
+            document.getElementById('importFile').addEventListener('change', (e) => {
+                if (e.target.files[0]) importData(e.target.files[0]);
+            });
+
+            document.getElementById('clearAllBtn').addEventListener('click', () => {
+                if (confirm('Eliminare TUTTI i dati?')) {
+                    events = [];
+                    saveData();
+                    renderCurrentView();
+                    showToast('Dati eliminati', 'info');
+                    closeDrawer();
+                }
+            });
+
+            // Modal
+            document.getElementById('fabBtn').addEventListener('click', () => {
+                editingEvent = null;
+                if (currentView === 'todo') {
+                    document.getElementById('eventType').value = 'todo';
+                    toggleModalFields();
+                }
+                document.getElementById('eventModal').classList.remove('hidden');
+            });
+
+            document.getElementById('eventType').addEventListener('change', toggleModalFields);
+            document.getElementById('closeModal').addEventListener('click', closeModal);
+            document.getElementById('cancelBtn').addEventListener('click', closeModal);
+            document.getElementById('saveBtn').addEventListener('click', saveEvent);
+
+            // Timer
+            document.getElementById('pauseTimerBtn').addEventListener('click', pauseTimer);
+            document.getElementById('stopTimerBtn').addEventListener('click', stopTimer);
+
+            // Todo tabs
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.tab-btn').forEach(b => {
+                        b.classList.remove('active', 'bg-blue-500', 'text-white');
+                        b.classList.add('bg-gray-100', 'text-gray-600');
+                    });
+                    btn.classList.add('active', 'bg-blue-500', 'text-white');
+                    btn.classList.remove('bg-gray-100', 'text-gray-600');
+                    
+                    currentTodoTab = btn.dataset.status;
+                    renderTodoView();
+                });
+            });
+
+            // Drag and drop for todos
+            document.addEventListener('dragstart', (e) => {
+                if (e.target.classList.contains('todo-card')) {
+                    e.target.classList.add('dragging');
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', e.target.dataset.id);
+                }
+            });
+
+            document.addEventListener('dragend', (e) => {
+                if (e.target.classList.contains('todo-card')) {
+                    e.target.classList.remove('dragging');
+                }
+                document.querySelectorAll('.kanban-column').forEach(col => {
+                    col.classList.remove('drag-over');
+                });
+            });
+
+            document.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                const column = e.target.closest('.kanban-column');
+                if (column) {
+                    column.classList.add('drag-over');
+                }
+            });
+
+            document.addEventListener('dragleave', (e) => {
+                const column = e.target.closest('.kanban-column');
+                if (column && !column.contains(e.relatedTarget)) {
+                    column.classList.remove('drag-over');
+                }
+            });
+
+            document.addEventListener('drop', (e) => {
+                e.preventDefault();
+                const column = e.target.closest('.kanban-column');
+                if (column) {
+                    column.classList.remove('drag-over');
+                    const todoId = parseInt(e.dataTransfer.getData('text/plain'));
+                    const newStatus = column.dataset.status;
+                    const todo = events.find(e => e.id === todoId);
+                    if (todo) {
+                        todo.status = newStatus;
+                        if (newStatus === 'done') {
+                            todo.completed = true;
+                            todo.completedAt = new Date();
+                        } else {
+                            todo.completed = false;
+                        }
+                        saveData();
+                        renderCurrentView();
+                        showToast(`Spostato in ${statusNames[newStatus]}`, 'success');
+                    }
+                }
+            });
+
+            // Update storage info
+            const updateStorageInfo = () => {
+                const info = document.getElementById('storageInfo');
+                info.textContent = `${events.length} eventi salvati`;
+            };
+            updateStorageInfo();
+            setInterval(updateStorageInfo, 5000);
+        });
+    </script>
+</body>
+</html>
